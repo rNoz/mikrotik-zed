@@ -19,12 +19,12 @@ mod kind {
 
 /// A completion item ready for JSON serialization.
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompletionItem {
     pub label: String,
     pub kind: Option<i32>,
     pub detail: Option<String>,
     pub insert_text: Option<String>,
-    #[serde(rename = "insertTextFormat")]
     pub insert_text_format: Option<i32>,
 }
 

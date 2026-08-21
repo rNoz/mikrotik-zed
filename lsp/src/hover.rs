@@ -51,6 +51,7 @@ pub fn compute_hover(
     line: &str,
     pos: usize,
     full_doc: &str,
+    line_idx: usize,
 ) -> Option<Hover> {
     let word_start = find_word_start(line, pos);
     let word_end = find_word_end(line, pos);
@@ -93,8 +94,10 @@ pub fn compute_hover(
         }
     }
 
-    // Check if it's a property name for the current menu
-    let before_cursor = crate::build_before_cursor(full_doc, 0, crate::count_newlines(full_doc, pos));
+    // Check if it's a property name for the current menu.
+    // The LSP position gives us the line directly; build the before-cursor
+    // context from that line and the character offset.
+    let before_cursor = crate::build_before_cursor(full_doc, line_idx, pos);
     let context = crate::parse_line(data, &before_cursor);
 
     if let Some(menu) = data.menu_by_path.get(&context.path) {

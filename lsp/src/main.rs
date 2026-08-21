@@ -208,6 +208,7 @@ impl Server {
                     current_line,
                     character,
                     doc,
+                    line,
                 );
 
                 let result = hover.map(|h| serde_json::to_value(h).unwrap());
