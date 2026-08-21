@@ -8,10 +8,9 @@ repository = "https://github.com/keiras94/mikrotik-zed"
 categories = ["Languages"]
 languages = ["languages/rsc"]
 
-# TODO: publish grammar to GitHub and update to public URL
 [grammars.rsc]
-repository = "/Users/Francisco/Developer/mikrotik-zed/grammar-bare.git"
-rev = "39bcae7c07c3147fcb5ad9029ff17aa4aa04f770"
+repository = "https://github.com/rNoz/mikrotik-rsc-grammar"
+rev = "18752a43a80e678dece9e2d5cfd26ec9316e4914"
 
 [language_servers.rsc-ls]
 name = "MikroTik Language Server"
