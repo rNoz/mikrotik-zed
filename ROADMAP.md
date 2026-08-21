@@ -146,6 +146,20 @@ Extension PR 5 waits for the grammar PRs to land upstream (or keeps pointing to 
 * `languages/rsc/` — Zed query files.
 * Sibling project: `~/projects/mikrotik-hub/mikrotik-rsc-grammar/.overlay/` holds grammar-side plans.
 
+## Active upstream contributions
+
+| PR | Repo | Status | What it does |
+|---|---|---|---|
+| `keiras94/mikrotik-rsc-grammar#2` | grammar | draft | Metadata/query completeness; cherry-picked into `overlay/integration` as `aad25c0`. |
+| `keiras94/mikrotik-zed#3` | extension | draft | camelCase completion JSON + hover context; cherry-picked into `overlay/integration` as `abd2478`. |
+| `keiras94/mikrotik-zed#4` | extension | draft | Tokenizer quoted values + action commands + tests; cherry-picked into `overlay/integration` as `7cefeb2`. |
+
+## How to test right now
+See `.overlay/TESTING.md` for step-by-step Zed GUI validation. The integrated branch is `overlay/integration`.
+
+## Next decision
+After the Zed GUI test passes, mark the three draft PRs ready for review and move to extension PR 5 (public grammar + `rsc-ls` distribution).
+
 ## Decision log
 
 * **Grammar source:** Fork `keiras94/mikrotik-rsc-grammar` to `rNoz/mikrotik-rsc-grammar` so we can patch `grammar.js` without waiting for upstream.  The extension points to the fork until the changes are upstreamed.
