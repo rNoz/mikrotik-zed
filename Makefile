@@ -47,6 +47,12 @@ check: ## Quick compile verification
 	cargo check --target wasm32-wasip1
 	cargo check -p rsc-ls
 
+# Note: a global `[build] rustflags` in ~/.cargo/config.toml that sets a
+# macOS deployment target (e.g. -mmacosx-version-min=15.3) will be passed
+# to the wasm32-wasip1 linker and cause the build to fail. Keep macOS flags
+# under [target.*-apple-darwin] only, or use a temporary CARGO_HOME that does
+# not contain such rustflags.
+
 # ── Cleanup ────────────────────────────────────────────────────
 
 clean: ## Remove all build artifacts and generated files
