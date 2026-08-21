@@ -157,10 +157,10 @@ impl Server {
             "textDocument/didChange" => {
                 let uri = params["params"]["textDocument"]["uri"].as_str()?;
                 let changes = params["params"]["contentChanges"].as_array()?;
-                if let Some(change) = changes.first() {
-                    if let Some(text) = change["text"].as_str() {
-                        self.docs.insert(uri.to_string(), text.to_string());
-                    }
+                if let Some(change) = changes.first()
+                    && let Some(text) = change["text"].as_str()
+                {
+                    self.docs.insert(uri.to_string(), text.to_string());
                 }
                 None
             }
