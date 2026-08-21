@@ -25,7 +25,7 @@ All code, comments, documentation, commit messages, and PR descriptions **must b
 | Language config (`config.toml`) | Done | RSC, `.rsc` suffix, brackets, word chars |
 | Extraction script (`extract_commands.py`) | Done | Parses `llms-full.txt` → `commands.toml` |
 | `data/commands.toml` generated | Done | 10,557 lines, 163 menus covering 4 target menus |
-| Grammar repo published | **Not done** | `extension.toml` rev is placeholder `0000...` |
+| Grammar repo published | Done | https://github.com/rNoz/mikrotik-rsc-grammar, pinned in `extension.toml` |
 | Phase 1 tested in Zed | **Not done** | Needs "Install Dev Extension" validation |
 | Phase 1 published to zed-industries/extensions | **Not done** | PR not submitted |
 | Phase 2 language server | Done | Native Rust binary at `lsp/`, WASM extension at `extension/` |
@@ -121,7 +121,7 @@ mikrotik-zed/                          # Monorepo: extension + grammar
    - `outline.scm` (symbol view)
    - `injections.scm` (placeholder, no injections yet)
 3. Test locally: Zed → "Install Dev Extension" → point to `mikrotik-zed/`.
-4. **Before publishing:** Update `extension.toml` grammar `rev` to the real commit hash from `fravic/mikrotik-rsc-grammar`.
+4. If the build fails with a wasm32-wasip1 linker error mentioning `-mmacosx-version-min`, check that any macOS-only rustflags in `~/.cargo/config.toml` are scoped under `[target.*-apple-darwin]` instead of the global `[build]` section. A global `[build] rustflags` value is merged into every target, including the WASM linker invocation.
 5. Publish via PR to `zed-industries/extensions` (submodule + entry in `extensions.toml` + `pnpm sort-extensions`).
 
 ### Phase 1 Exit Checklist
@@ -180,6 +180,7 @@ The extraction pipeline is already built:
    cp target/wasm32-wasip1/release/mikrotik_zed.wasm extension.wasm
    ```
 4. Test with "Install Dev Extension"; inspect logs via `zed --foreground` or the `zed: open log` action.
+5. If the WASM build fails with a linker error about `-mmacosx-version-min` or other macOS flags, scope those rustflags to `[target.*-apple-darwin]` in `~/.cargo/config.toml`; global `[build] rustflags` leak into the wasm32-wasip1 linker.
 
 ### Phase 2 Exit Checklist
 
