@@ -1,6 +1,7 @@
 # Build artifacts
 target/
-Cargo.lock
+# Cargo.lock is kept because this workspace also builds the rsc-ls binary.
+# !Cargo.lock
 
 # Zed-cloned grammar (generated, not source)
 grammars/
