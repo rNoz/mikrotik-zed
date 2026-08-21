@@ -157,10 +157,10 @@ impl Server {
             "textDocument/didChange" => {
                 let uri = params["params"]["textDocument"]["uri"].as_str()?;
                 let changes = params["params"]["contentChanges"].as_array()?;
-                if let Some(change) = changes.first() {
-                    if let Some(text) = change["text"].as_str() {
-                        self.docs.insert(uri.to_string(), text.to_string());
-                    }
+                if let Some(change) = changes.first()
+                    && let Some(text) = change["text"].as_str()
+                {
+                    self.docs.insert(uri.to_string(), text.to_string());
                 }
                 None
             }
@@ -208,6 +208,7 @@ impl Server {
                     current_line,
                     character,
                     doc,
+                    line,
                 );
 
                 let result = hover.map(|h| serde_json::to_value(h).unwrap());
@@ -241,6 +242,8 @@ impl Server {
 // ── Tokenizer / parser (ported from ls.mjs) ─────────────────────
 
 /// Split a line into tokens: quoted strings, /-prefixed paths, or bare words.
+/// A bare word may contain a quoted value (e.g. `comment="hello world"`), in
+/// which case the whole `key="value"` string is returned as a single token.
 fn tokenize(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let bytes = text.as_bytes();
@@ -255,27 +258,10 @@ fn tokenize(text: &str) -> Vec<String> {
             break;
         }
 
-        // Quoted string
-        if bytes[i] == b'"' {
-            let start = i;
-            i += 1;
-            while i < bytes.len() {
-                if bytes[i] == b'\\' {
-                    i += 2; // skip escaped char
-                } else if bytes[i] == b'"' {
-                    i += 1;
-                    break;
-                } else {
-                    i += 1;
-                }
-            }
-            tokens.push(std::str::from_utf8(&bytes[start..i]).unwrap_or("").to_string());
-            continue;
-        }
+        let start = i;
 
-        // /-prefixed path segment
+        // /-prefixed path segment: take until whitespace
         if bytes[i] == b'/' {
-            let start = i;
             i += 1;
             while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
                 i += 1;
@@ -284,11 +270,32 @@ fn tokenize(text: &str) -> Vec<String> {
             continue;
         }
 
-        // Bare word
-        let start = i;
-        while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+        // Bare word, but it may contain an embedded quoted value.
+        loop {
+            if i >= bytes.len() || bytes[i].is_ascii_whitespace() {
+                break;
+            }
+
+            if bytes[i] == b'"' {
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 2;
+                    } else if bytes[i] == b'"' {
+                        i += 1;
+                        break;
+                    } else {
+                        i += 1;
+                    }
+                }
+                // After the closing quote we may immediately hit whitespace
+                // (or another quoted segment); continue the outer loop.
+                continue;
+            }
+
             i += 1;
         }
+
         tokens.push(std::str::from_utf8(&bytes[start..i]).unwrap_or("").to_string());
     }
 
@@ -311,7 +318,12 @@ pub fn build_before_cursor(doc: &str, cursor_line: usize, cursor_char: usize) ->
         return String::new();
     }
 
-    let mut parts = vec![current_part];
+    // Trim a trailing line-continuation backslash and any leading spaces on
+    // the current line so that continued tokens read as one token.
+    let current = current_part
+        .trim_end_matches('\\')
+        .trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let mut parts = vec![current];
 
     for i in (0..cursor_line).rev() {
         let trimmed = lines[i].trim();
@@ -319,10 +331,10 @@ pub fn build_before_cursor(doc: &str, cursor_line: usize, cursor_char: usize) ->
             break;
         }
         if trimmed.starts_with('/') || trimmed.starts_with(':') {
-            parts.insert(0, lines[i]);
+            parts.insert(0, lines[i].trim_end_matches('\\').trim());
             break;
         }
-        parts.insert(0, lines[i]);
+        parts.insert(0, lines[i].trim_end_matches('\\').trim());
     }
 
     parts.join(" ").trim().to_string()
@@ -338,7 +350,10 @@ pub fn parse_line(data: &MenuData, before_cursor: &str) -> LineContext {
 
     for token in &tokens {
         if token.starts_with('/') {
-            path_parts.push(token.trim_start_matches('/').to_string());
+            let part = token.trim_start_matches('/').to_string();
+            if !part.is_empty() {
+                path_parts.push(part);
+            }
             continue;
         }
 
@@ -354,20 +369,30 @@ pub fn parse_line(data: &MenuData, before_cursor: &str) -> LineContext {
             // Use child_names_by_parent (not menu_by_path) so implicit
             // intermediate menus like /ip/firewall are recognized as valid
             // path segments even though they have no direct TOML entry.
-            let is_sub_menu = data
+            let child = data
                 .child_names_by_parent
                 .get(&current_path)
-                .map(|children| children.iter().any(|c| c.name == *token))
-                .unwrap_or(false);
-            if is_sub_menu {
-                path_parts.push(token.clone());
-            } else {
+                .and_then(|children| children.iter().find(|c| c.name == *token));
+
+            if let Some(child) = child {
+                if child.menu_type == "Command" {
+                    // Action command under the current menu (e.g. /ip route check).
+                    if command.is_none() {
+                        command = Some(token.clone());
+                    }
+                } else {
+                    // Directory / settings directory: extend the path.
+                    path_parts.push(token.clone());
+                }
+            } else if command.is_none() {
                 command = Some(token.clone());
             }
             continue;
         }
 
-        command = Some(token.clone());
+        if command.is_none() {
+            command = Some(token.clone());
+        }
     }
 
     LineContext {
@@ -382,10 +407,147 @@ pub fn parse_line(data: &MenuData, before_cursor: &str) -> LineContext {
     }
 }
 
-/// Count newlines in a document up to a given byte position (for hover context).
-pub fn count_newlines(_doc: &str, _pos: usize) -> usize {
-    // Hover uses line-based lookup from the position parameter directly,
-    // so we don't need to count newlines here.  The hover handler already
-    // receives the line number from the LSP position.
-    0
+// ── Tests ───────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::menus::{ChildEntry, MenuData, MenuEntry};
+
+    fn make_menus(raw: &[(&str, &str)]) -> (Vec<MenuEntry>, HashMap<String, MenuEntry>) {
+        let mut menus = Vec::new();
+        let mut menu_by_path = HashMap::new();
+        for &(path, typ) in raw {
+            let m = MenuEntry {
+                path: path.to_string(),
+                menu_type: typ.to_string(),
+                flags: vec![],
+                arguments: vec![],
+                read_only: vec![],
+            };
+            menu_by_path.insert(path.to_string(), m.clone());
+            menus.push(m);
+        }
+        (menus, menu_by_path)
+    }
+
+    fn build_data(menus: Vec<MenuEntry>, menu_by_path: HashMap<String, MenuEntry>) -> MenuData {
+        let mut child_map: HashMap<String, HashMap<String, ChildEntry>> = HashMap::new();
+        for m in &menus {
+            let parts: Vec<&str> = m.path.split('/').collect();
+            for i in 2..parts.len() {
+                let parent = format!("/{}", parts[1..i].join("/"));
+                let child = parts[i].to_string();
+                let child_path = format!("/{}", parts[1..i + 1].join("/"));
+                child_map
+                    .entry(parent)
+                    .or_default()
+                    .entry(child.clone())
+                    .or_insert(ChildEntry {
+                        name: child,
+                        path: child_path,
+                        menu_type: m.menu_type.clone(),
+                    });
+            }
+        }
+        let mut root_children = HashMap::new();
+        for m in &menus {
+            if let Some(root) = m.path.split('/').nth(1) {
+                root_children
+                    .entry(root.to_string())
+                    .or_insert_with(|| ChildEntry {
+                        name: root.to_string(),
+                        path: format!("/{root}"),
+                        menu_type: "Directory".to_string(),
+                    });
+            }
+        }
+        child_map.insert(String::new(), root_children);
+
+        MenuData {
+            menus,
+            menu_by_path,
+            child_names_by_parent: child_map
+                .into_iter()
+                .map(|(k, v)| (k, v.into_values().collect()))
+                .collect(),
+        }
+    }
+
+    fn test_data() -> MenuData {
+        let (menus, menu_by_path) = make_menus(&[
+            ("/ip/address", "Directory"),
+            ("/ip/route", "Directory"),
+            ("/ip/route/check", "Command"),
+        ]);
+        build_data(menus, menu_by_path)
+    }
+
+    #[test]
+    fn tokenize_splits_words_and_paths() {
+        assert_eq!(
+            tokenize("/ip address add gateway=1.1.1.1"),
+            vec!["/ip", "address", "add", "gateway=1.1.1.1"]
+        );
+    }
+
+    #[test]
+    fn tokenize_quoted_string() {
+        assert_eq!(
+            tokenize("add comment=\"hello world\""),
+            vec!["add", "comment=\"hello world\""]
+        );
+    }
+
+    #[test]
+    fn build_before_cursor_collects_continuation_lines() {
+        let doc = "/ip address add \\\n  address=10.0.0.1/24 \\\n  interface=ether1";
+        // Cursor on the last line, column 7 = "inter" (after two leading spaces).
+        let ctx = build_before_cursor(doc, 2, 7);
+        assert_eq!(ctx, "/ip address add address=10.0.0.1/24 inter");
+    }
+
+    #[test]
+    fn parse_line_root_menu() {
+        let data = test_data();
+        let ctx = parse_line(&data, "/ip address add address=10.0.0.1/24");
+        assert_eq!(ctx.path, "/ip/address");
+        assert_eq!(ctx.command, Some("add".to_string()));
+        assert_eq!(
+            ctx.properties.get("address"),
+            Some(&"10.0.0.1/24".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_line_partial_submenu() {
+        let data = test_data();
+        let ctx = parse_line(&data, "/ip route");
+        assert_eq!(ctx.path, "/ip/route");
+        assert!(ctx.command.is_none());
+    }
+
+    #[test]
+    fn parse_line_action_command() {
+        let data = test_data();
+        let ctx = parse_line(&data, "/ip route check");
+        assert_eq!(ctx.path, "/ip/route");
+        assert_eq!(ctx.command, Some("check".to_string()));
+    }
+
+    #[test]
+    fn parse_line_no_menu() {
+        let data = test_data();
+        let ctx = parse_line(&data, ":put $x");
+        assert!(ctx.path.is_empty());
+        assert_eq!(ctx.command, Some(":put".to_string()));
+    }
+
+    #[test]
+    fn parse_line_lone_root_prefix() {
+        let data = test_data();
+        let ctx = parse_line(&data, "/");
+        assert!(ctx.path.is_empty(), "lone '/' should map to the root path");
+        assert!(ctx.command.is_none());
+    }
 }

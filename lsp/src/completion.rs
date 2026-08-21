@@ -37,11 +37,11 @@ pub fn compute_completions(data: &MenuData, before_cursor: &str) -> Vec<Completi
     }
 
     // Typing a property value right after "=" → suggest enum/bool/type values
-    if let Some(eq_pos) = context.last_token.rfind('=') {
-        if eq_pos == context.last_token.len() - 1 {
-            let key = &context.last_token[..eq_pos];
-            return get_value_completions(data, &context, key);
-        }
+    if let Some(eq_pos) = context.last_token.rfind('=')
+        && eq_pos == context.last_token.len() - 1
+    {
+        let key = &context.last_token[..eq_pos];
+        return get_value_completions(data, &context, key);
     }
 
     // If a verb is already typed (e.g., "add", "print"), only suggest
@@ -253,11 +253,7 @@ fn parse_enum_values(type_str: &str) -> Vec<String> {
 }
 
 fn get_insert_text(arg: &crate::menus::ArgEntry) -> String {
-    if arg.arg_type.starts_with("enum") {
-        format!("{}={}", arg.name, "$1")
-    } else if arg.arg_type == "bool" {
-        format!("{}={}", arg.name, "$1")
-    } else if arg.arg_type == "string" {
+    if arg.arg_type == "string" {
         format!("{}=\"{}\"", arg.name, "$1")
     } else {
         format!("{}={}", arg.name, "$1")
